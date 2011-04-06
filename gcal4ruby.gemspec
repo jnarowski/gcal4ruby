@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
    s.name = %q{nachokb-gcal4ruby}
-   s.version = "0.5.5.1"
+   s.version = "0.5.6.2"
    s.date = %q{2010-07-22}
    s.authors = ["Mike Reich", "Ignacio Carrera"]
    s.email = %q{mike@seabourneconsulting.com}
