@@ -23,14 +23,16 @@ class Time
     self.utc.strftime("%Y%m%dT%H%M%S")
   end
   
-  def self.parse_complete(value)
-    unless value.blank?
-      if value.include?("T")
-        d, h = value.split("T")
-        return Time.parse(d+" "+h.gsub("Z", ""))
-      else
-        value = value.to_s
-        return Time.parse("#{value[0..3]}-#{value[4..5]}-#{value[6..7]}")
+  def self.parse_complete(value, timezone)
+    Time.use_zone(timezone) do 
+      unless value.blank?
+        if value.include?("T")
+          d, h = value.split("T")
+          return Time.zone.parse(d+" "+h.gsub("Z", ""))
+        else
+          value = value.to_s
+          return Time.zone.parse("#{value[0..3]}-#{value[4..5]}-#{value[6..7]}")
+        end
       end
     end
   end
@@ -53,6 +55,8 @@ module GCal4Ruby
     attr_reader :frequency
     #True if the event is all day (i.e. no start/end time)
     attr_accessor :all_day
+    # The timezone the recurring rule is in 
+    attr_accessor :timezone
     
     #Accepts an optional attributes hash or a string containing a properly formatted ISO 8601 recurrence rule.  Returns a new Recurrence object
     def initialize(vars = {})
@@ -65,12 +69,38 @@ module GCal4Ruby
       end
       @all_day ||= false
     end
+
+    # extracts the timezone from array
+    # - 1. finds the "TZID:America/Phoenix" line (returns an array of 1)
+    # - 2. Splits the line to separate "TZID" and "America/Phoenix"
+    # - 3. Returns the 2nd element from the array  ["TZID", "America/Phoenix"]
+    #
+    # example: 
+    #   ["DTSTART;TZID=America/Phoenix:20101020T120000", 
+    #    "DTEND;TZID=America/Phoenix:20101020T130000", 
+    #    "RRULE:FREQ=DAILY", "BEGIN:VTIMEZONE", 
+    #    "TZID:America/Phoenix", 
+    #    "X-LIC-LOCATION:America/Phoenix", 
+    #    "BEGIN:STANDARD", 
+    #    "TZOFFSETFROM:-0700", 
+    #    "TZOFFSETTO:-0700", 
+    #    "TZNAME:MST", 
+    #    "DTSTART:19700101T000000", 
+    #    "END:STANDARD", 
+    #    "END:VTIMEZONE"
+    #   ]
+    def extract_timezone(attrs)
+      if tz = attrs.select{|line| line.include?("TZID") && !line.include?(";TZID") }
+        return tz.try(:first).try(:split,":").try(:last)
+      end
+    end
     
     #Accepts a string containing a properly formatted ISO 8601 recurrence rule and loads it into the recurrence object.  
     #Contributed by John Paul Narowski.
     def load(rec)
       @frequency = {}
       attrs = rec.split("\n")
+      @timezone = extract_timezone(attrs)
       attrs.each do |val|
         key, value = val.split(":")
         if key == 'RRULE'
@@ -79,7 +109,7 @@ module GCal4Ruby
             rr_key = rr_key.downcase.to_sym
             unless @frequency.has_key?(rr_key)
               if rr_key == :until
-                @repeat_until = Time.parse_complete(rr_value)
+                @repeat_until = Time.parse_complete(rr_value, @timezone)
               else
                 @frequency[rr_key] = rr_value 
               end
@@ -88,12 +118,12 @@ module GCal4Ruby
         elsif key == 'INTERVAL'
           @frequency[:interval] = value.to_i unless value.blank?
         elsif key.include?("DTSTART;TZID") or key.include?("DTSTART") or key.include?('DTSTART;VALUE=DATE-TIME')
-          @start_time ||= Time.parse_complete(value)
+          @start_time ||= Time.parse_complete(value, @timezone)
         elsif key.include?('DTSTART;VALUE=DATE')
           @start_time ||= Time.parse(value)
           @all_day = true
         elsif key.include?("DTEND;TZID") or key.include?("DTEND") or key.include?('DTEND;VALUE=DATE-TIME')
-          @end_time ||= Time.parse_complete(value)
+          @end_time ||= Time.parse_complete(value, @timezone)
         elsif key.include?('DTEND;VALUE=DATE')
           @end_time ||= Time.parse(value)
         end
