@@ -38,15 +38,15 @@ module GCal4Ruby
   #2. Get Calendar List
   #    calendars = service.calendars
   #
-  class Service < GData4Ruby::Service
-    CALENDAR_LIST_FEED = 'http://www.google.com/calendar/feeds/default/allcalendars/full'
+  class Service
+    @@calendar_list_feed = 'www.google.com/calendar/feeds/default/owncalendars/full'
     
-    #Convenience attribute contains the currently authenticated account name
-    attr_reader :account
-        
-    # The token returned by the Google servers, used to authorize all subsequent messages
-    attr_reader :auth_token
+    # The type of GData4Ruby service we want to use
+    attr_accessor :gdata_service
     
+    # Convenience attribute contains the currently authenticated account name
+    attr_accessor :account
+         
     # Determines whether GCal4Ruby ensures a calendar is public.  Setting this to false can increase speeds by 
     # 50% but can cause errors if you try to do something to a calendar that is not public and you don't have
     # adequate permissions
@@ -54,59 +54,104 @@ module GCal4Ruby
     
     #Accepts an optional attributes hash for initialization values
     def initialize(attributes = {})
-      super(attributes)
+      # If the user has specified the type of GData4Ruby class they want, instantiate it
+      if(attributes.has_key?(:GData4RubyService))
+        @gdata_service = GData4Ruby.const_get(attributes[:GData4RubyService]).new(attributes)
+      end
+      # Otherwise use the default service
+      @gdata_service ||= GData4Ruby::Service.new(attributes)
       attributes.each do |key, value|
-        self.send("#{key}=", value)
+        if self.respond_to?("#{key}=")
+          self.send("#{key}=", value)
+        end
       end    
       @check_public ||= true
+      @account ||= "default"
+      @debug ||= false
+      log("Check Public: #{check_public}")
+    end
+    
+    def debug
+      return @debug
+    end
+    
+    def debug=(value)
+      @debug=value
+      @gdata_service.debug = value
+    end
+    
+    def log(string)
+      puts string if debug
     end
     
     def default_event_feed
-      return "http://www.google.com/calendar/feeds/#{@account}/private/full"
+      return create_url("www.google.com/calendar/feeds/#{@account}/private/full")
     end
   
-    # The authenticate method passes the username and password to google servers.  
+    # The authenticate method passes an  for the service to use to access Google's servers  
     # If authentication succeeds, returns true, otherwise raises the AuthenticationFailed error.
-    def authenticate(username, password, service='cl')
-      super(username, password, service)
+    def authenticate(options = {})
+      if not options.has_key?(:service)
+        options[:service] = 'cl'
+      end
+      @gdata_service.authenticate(options)
     end
     
     #Helper function to reauthenticate to a new Google service without having to re-set credentials.
-    def reauthenticate(service='cl')
-      authenticate(@account, @password, service)
+    def reauthenticate(options = {})
+      if not options.has_key?(:service)
+        options[:service] = 'cl'
+      end
+      @gdata_service.reauthenticate(options)
     end
-  
+    
+    # Passes a request along from a GData4Ruby GDataObject to a GData4Ruby Base (Service) to be invoked
+    def send_request(request)
+      if not @gdata_service.authenticated?
+         raise GData4Ruby::NotAuthenticated
+      end
+      @gdata_service.send_request(request)
+    end
+    
+    
     #Returns an array of Calendar objects for each calendar associated with 
     #the authenticated account.
-    def calendars
-      if not @auth_token
-         raise NotAuthenticated
+    # If you want to only load some attributes, you can pass in an array of 
+    # string attributes via options[:fields], for example ["@gd:*", "id", "title"]
+    def calendars(options = {})
+      if(options[:fields])
+        params = "?fields=entry(#{options[:fields].join(",")})"
       end
-      ret = send_request(GData4Ruby::Request.new(:get, CALENDAR_LIST_FEED, nil, {"max-results" => "10000"}))
+      params ||= ""
+      ret = send_request(GData4Ruby::Request.new(:get, create_url(@@calendar_list_feed + params), nil, {"max-results" => "10000"}))
       cals = []
       REXML::Document.new(ret.body).root.elements.each("entry"){}.map do |entry|
         entry = GData4Ruby::Utils.add_namespaces(entry)
-        cal = Calendar.new(self)
+        cal = Calendar.new(self, {:debug => debug})
+        log(entry.inspect)
         cal.load(entry.to_s)
         cals << cal
       end
       return cals
     end
+
     
     #Returns an array of Event objects for each event in this account
     def events
-      if not @auth_token
-         raise NotAuthenticated
-      end
-      ret = send_request(GData4Ruby::Request.new(:get, default_event_feed, nil, {"max-results" => "10000"}))
+     ret = send_request(GData4Ruby::Request.new(:get, default_event_feed, nil, {"max-results" => "10000"}))
       events = []
       REXML::Document.new(ret.body).root.elements.each("entry"){}.map do |entry|
         entry = GData4Ruby::Utils.add_namespaces(entry)
-        event = Event.new(self)
+        event = Event.new(self, {:debug => debug})
         event.load(entry.to_s)
         events << event
       end
       return events
+    end
+    
+    # Builds a URL
+    def create_url(path)
+      return @gdata_service.create_url(path)
     end
     
     #Helper function to return a formatted iframe embedded google calendar.  Parameters are:
@@ -154,7 +199,7 @@ module GCal4Ruby
         output += "src=#{cal_list[0].id}&"
       end
           
-      "<iframe src='http://www.google.com/calendar/embed?#{output}' style='#{params[:border]} px solid;' width='#{params[:width]}' height='#{params[:height]}' frameborder='#{params[:border]}' scrolling='no'></iframe>"
+      "<iframe src='#{create_url("www.google.com/calendar/embed?"+output)}' style='#{params[:border]} px solid;' width='#{params[:width]}' height='#{params[:height]}' frameborder='#{params[:border]}' scrolling='no'></iframe>"
     end
   end
 end
