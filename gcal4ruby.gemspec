@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
    s.name = %q{nachokb-gcal4ruby}
-   s.version = "0.5.6.4"
+   s.version = "0.5.6.5"
    s.date = %q{2010-07-22}
    s.authors = ["Mike Reich", "Ignacio Carrera"]
    s.email = %q{mike@seabourneconsulting.com}
@@ -11,7 +11,16 @@ Gem::Specification.new do |s|
    s.rubyforge_project = 'gcal4ruby'
    s.has_rdoc = true
    s.test_files = ['test/unit.rb'] 
-   s.add_dependency('gdata4ruby', '>= 0.1.2')
+   if s.respond_to? :specification_version then
+     s.specification_version = 3
+     if Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.2.0') then
+       s.add_runtime_dependency(%q<edave-gdata4ruby>, [">= 0.2.0"])
+     else
+       s.add_dependency(%q<edave-gdata4ruby>, [">= 0.2.0"])
+     end
+   else
+     s.add_dependency(%q<edave-gdata4ruby>, [">= 0.2.0"])
+   end   
    s.add_dependency('activesupport', '~> 2.3')
    s.add_dependency('tzinfo', '>= 0.3.22')
 end 
